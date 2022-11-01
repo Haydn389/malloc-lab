@@ -39,19 +39,11 @@ team_t team = {
 // /* rounds up to the nearest multiple of ALIGNMENT */
 // #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
 // #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-#define ALIGNMENT 8
-
-#define ALIGN(size) (((size)+(ALIGNMENT-1))& ~0x7)
-
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 /*macros*/
 #define WSIZE 4                           // word and header/footer size(bytes)
 #define DSIZE 8                           // double word size(bytes)
 #define CHUNKSIZE (1 << 12)               // heap 확장 : 4096 byte
-#define INITCHUNKSIZE (1<<6)    // 64
-#define LISTLIMIT 20
-#define REALLOC_BUFFER (1<<7)   // 128
 #define MINIMUM 16                        // hd+pred+succ+footer=16byte
 #define MAX(x, y) ((x) > (y) ? (x) : (y)) // 최댓값 구하기
 
@@ -75,31 +67,17 @@ team_t team = {
 #define NEXT_BLKP(bp) (((char *)(bp) + GET_SIZE((char *)(bp)-WSIZE)))
 #define PREV_BLKP(bp) (((char *)(bp)-GET_SIZE((char *)(bp)-DSIZE)))
 
-/*포인터 p가 가리키는 메모리에 포인터 ptr입력*/
-#define SET_PTR(p,ptr)  (*(unsigned int *)(p) = (unsigned int)(ptr))
-
-/*가용 블럭 리스트에서 next와 prev의 포인터 반환*/
-#define NEXT_PTR(ptr) ((char*)(ptr))
-#define PREV_PTR(ptr) ((char*)(ptr)+WSIZE)
-
-/*segregated list 내에서 next 와 prev의 포인터 반환*/
-#define NEXT(ptr) (*(char **)(ptr))
-#define NEXT(ptr) (*(char **)(PREV_PTR(ptr)))
-
-
+/*free block 반환*/
 #define SUCC_P(bp) (*(char **)(bp + WSIZE)) //(bp+WSIZE)가 가리키는 포인터(successor)반환 ,주소 값이 아닌 pointer 를 반환해주기 위해 이중포인터로 casting
 #define PRED_P(bp) (*(char **)(bp))         // bp가 가리키는 포인터 (predecessor)반환
 
+
 static char *heap_listp; // heap공간 첫 주소를 가리키는 정적 전역 변수 설정
 static char *free_listp; // free_list의 맨 첫 블록을 가리키는 포인터
-void *segregated_free_lists[LISTLIMIT];
-
-
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t a_size);
 static void place(void *bp, size_t a_size);
-static void insert_block(void *ptr, size_t size);
 static void remove_block(void *bp);
 
 /*
@@ -107,16 +85,12 @@ static void remove_block(void *bp);
  */
 int mm_init(void)
 {
-    for (int i=0; i<LISTLIMIT;i++)
-    {
-        segregated_free_lists[i]=NULL;
-    }
-
-    if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
+    if ((heap_listp = mem_sbrk(6 * WSIZE)) == (void *)-1)
         return -1;
-    // *heap_listp=0;
     PUT(heap_listp, 0);                              /* Alignment padding */
     PUT(heap_listp + (1 * WSIZE), PACK(MINIMUM, 1)); /* Prologue header */
+    PUT(heap_listp + (2 * WSIZE), 0);                /* pred */
+    PUT(heap_listp + (3 * WSIZE), 0);                /* suc */
     PUT(heap_listp + (4 * WSIZE), PACK(MINIMUM, 1)); /* 블록의 footer */
     PUT(heap_listp + (5 * WSIZE), PACK(0, 1));       /* Epilogue header */
     heap_listp += (2 * WSIZE);
@@ -134,8 +108,8 @@ static void *extend_heap(size_t words)
 
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
 
-    // if (size < MINIMUM) // size < 16byte 면 최소블럭사이즈로 맞춰주기
-    //     size = MINIMUM;
+    if (size < MINIMUM) // size < 16byte 면 최소블럭사이즈로 맞춰주기
+        size = MINIMUM;
 
     if ((long)(bp = mem_sbrk(size)) == -1)
     {
@@ -144,6 +118,7 @@ static void *extend_heap(size_t words)
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // new epilogue header
+
     return coalesce(bp);
 }
 
@@ -179,7 +154,7 @@ static void *coalesce(void *bp)
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
-    
+
     //앞뒤 모두 할당된 경우
     // SUCC_P(bp) = free_listp; // bp의 succesor를 가리키는 포인터를 기존 첫 블럭 포인터 대입
     // PRED_P(bp) = NULL;       // bp의 pred를 NULL로 초기화
@@ -190,7 +165,6 @@ static void *coalesce(void *bp)
     *(char**)(bp) = NULL;       // bp의 pred를 NULL로 초기화
     *(char**)(free_listp) = bp; // 기존 첫블럭의 pred를 bp로 업데이트
     free_listp = bp;         // free_listp를
-
     return bp;
 }
 /*
@@ -341,26 +315,3 @@ void *mm_realloc(void *bp, size_t size)
         }
     }
 }
-
-// void *mm_realloc(void *bp, size_t size)
-// {
-//     void *oldptr = bp;
-//     void *newptr;
-//     size_t copySize;
-//     // malloc을 하면 fit을 찾아 해당 bp를 반환
-//     newptr = mm_malloc(size);
-//     if (newptr == NULL)
-//         return NULL;
-//     // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-
-//     //기존 블록 GET_SIZE
-//     copySize = GET_SIZE(HDRP(oldptr));
-//     if (size < copySize) //조정하고자 하는 사이즈가 기존 블럭의 사이즈가 보다 작다면
-//         copySize = size; // copySize 작은 값으로 업데이트
-//     //메모리의 특정한 포인터부터 얼마까지의 부분을 다른 메모리 영역으로 복사하는 함수
-//     //(oldptr로부터 copySize만큼의 문자를 newptr로 복사해라)
-
-//     memcpy(newptr, oldptr, copySize); //새 집으로 이사 시키기
-//     mm_free(oldptr);                  //기존 방에서 짐빼기
-//     return newptr;
-// }
