@@ -90,7 +90,7 @@ int mm_init(void)
     heap_listp += (2 * WSIZE);
 
 
-    if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
+    if (extend_heap(32 / WSIZE) == NULL)
         return -1;
     last_bp = (char *)heap_listp;//next_fit
     return 0;
