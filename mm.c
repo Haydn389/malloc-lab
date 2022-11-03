@@ -281,7 +281,7 @@ static void *find_fit(size_t asize)
             // bp 가 NULL 이거나 해당 size class 내에서 적당한 블럭 찾을때 까지 bp이동
             while ((bp != NULL) && ((asize > GET_SIZE(HDRP(bp)))))
             {
-                bp = SUCC(bp); // 블록 탐색
+                bp = SUCC(bp);
             }
             if (bp != NULL) // 할당 가능한 블록을 찾은 경우
                 return bp;
@@ -336,19 +336,19 @@ void *mm_realloc(void *bp, size_t size)
     else
     {
         size_t old_size = GET_SIZE(HDRP(bp));
-        size_t new_size = size + (2 * WSIZE); // 2 words(hd+ft)
-        // new_size가 old_size보다 작거나 같으면 기존 bp 그대로 사용
-        if (new_size <= old_size)
+        size_t a_size = size + (2 * WSIZE); // 2 words(hd+ft)
+        // a_size가 old_size보다 작거나 같으면 기존 bp 그대로 사용
+        if (a_size <= old_size)
         {
             return bp;
         }
-        // new_size가 old_size보다 크면 사이즈 변경
+        // a_size가 old_size보다 크면 사이즈 변경
         else
         {
             size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
             size_t current_size = old_size + GET_SIZE(HDRP(NEXT_BLKP(bp)));
-            // next block이 가용상태이고 old, next block의 사이즈 합이 new_size보다 크면 그냥 그거 바로 합쳐서 쓰기
-            if (!next_alloc && current_size >= new_size)
+            // next block이 free고 old block+ next block의 사이즈 합이 a_size보다 크면 bp안옮기고 바로사용
+            if (!next_alloc && current_size >= a_size)
             {
                 remove_block(NEXT_BLKP(bp));
                 PUT(HDRP(bp), PACK(current_size, 1));
@@ -357,8 +357,8 @@ void *mm_realloc(void *bp, size_t size)
             }
             else
             {
-                void *new_bp = mm_malloc(new_size + 128);
-                memcpy(new_bp, bp, new_size);
+                void *new_bp = mm_malloc(a_size);
+                memcpy(new_bp, bp, a_size);
                 mm_free(bp);
                 return new_bp;
             }
